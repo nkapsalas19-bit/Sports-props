@@ -13,7 +13,12 @@ a bankroll-challenge mode ("$10 → $1000 at +100 odds") that suggests sized bet
    odds. The gap is the edge.
 3. **Rank.** Picks are filtered to a "good odds" range (avoids extreme favorites/longshots),
    filtered to a minimum edge and minimum sample-size confidence, then ranked by `edge × confidence`.
-4. **Challenges.** Create a bankroll challenge with a start budget, goal, risk level, and target
+4. **Trends (`/trends`).** For players with real recent-game history but no live sportsbook line
+   yet, the app builds its own reference projection (recency-weighted average, hit rate against
+   that reference, and performance in past meetings with today's opponent when there's enough
+   sample). This is always labeled as a projection, never dressed up as a real market price — it's
+   there so "what's this player likely to do" doesn't have to wait on a paid props feed.
+5. **Challenges.** Create a bankroll challenge with a start budget, goal, risk level, and target
    odds range. The suggestion engine builds a single bet — or parlays several top picks together —
    to land near your target odds, sizes the stake as a percentage of your current bankroll, and
    tracks the bankroll curve as you record wins/losses.
@@ -57,8 +62,13 @@ that's what's wired up here.
      `mapGameToLog()` to match.
    - Without this set, real-provider games still show up but at low confidence (see
      `valueEngine.ts`) rather than faking a probability from nothing.
-   - Player history isn't fetched yet either, for the same reason props aren't: nothing to model
-     it against until the props side above is built.
+   - This also backfills real player game logs (one extra API call per recent game, capped and
+     budgeted — see `API_SPORTS_MAX_CALLS` below) and feeds the `/trends` page — a player doesn't
+     need a live sportsbook prop for you to see their recent form and matchup history, only a
+     stats source. That page never presents its own reference number as a real market price.
+   - Rate limits: free api-sports plans are typically ~100 requests/day. The enricher meters
+     itself against `API_SPORTS_MAX_CALLS` (default 90) and stops early with a warning rather than
+     blowing through your quota — you'll get partial coverage on a free key, not an error.
 
 Everything downstream (the value engine, the dashboard, challenges) is provider-agnostic — it
 only depends on the `OddsProvider` interface in `src/lib/providers/types.ts`, so a different odds
@@ -112,8 +122,10 @@ src/app/                      dashboard (best picks) and challenges UI + API rou
 
 - Mock data means the *shape* of the pipeline is real but today's actual "best picks" are
   synthetic until a real odds + stats feed is wired in (see above).
-- Real-provider player props aren't fetched yet (needs a paid The Odds API plan) — only real
-  moneylines are live-data-ready out of the box.
+- Real-provider *sportsbook* player props (an actual FanDuel/DraftKings line + price) aren't
+  fetched yet (needs a paid The Odds API plan) — moneylines are live-price-ready out of the box,
+  and player *trends* (recent form/projections, no price attached) are, separately, real once
+  the stats provider is on.
 - The NBA/NFL/MLB legs of the stats provider are best-effort and may need a small field-name
   fix once you can see a live response for your api-sports key (soccer is solid).
 - Bet outcomes in a challenge are recorded manually (Won/Lost/Push) — there's no live score

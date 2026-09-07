@@ -10,13 +10,13 @@ interface Sport {
   leagues: League[];
 }
 
-function buildHref(params: Record<string, string | undefined>) {
+function buildHref(basePath: string, params: Record<string, string | undefined>) {
   const search = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v) search.set(k, v);
   }
   const qs = search.toString();
-  return qs ? `/?${qs}` : "/";
+  return qs ? `${basePath}?${qs}` : basePath;
 }
 
 function Chip({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
@@ -39,22 +39,26 @@ export function FilterBar({
   sportKey,
   leagueKey,
   betType,
+  basePath = "/",
+  showBetType = true,
 }: {
   sports: Sport[];
   sportKey?: string;
   leagueKey?: string;
   betType?: string;
+  basePath?: string;
+  showBetType?: boolean;
 }) {
   const activeSport = sports.find((s) => s.key === sportKey);
 
   return (
     <div className="space-y-2">
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <Chip href={buildHref({ betType })} active={!sportKey}>
+        <Chip href={buildHref(basePath, { betType })} active={!sportKey}>
           All Sports
         </Chip>
         {sports.map((s) => (
-          <Chip key={s.key} href={buildHref({ sport: s.key, betType })} active={sportKey === s.key}>
+          <Chip key={s.key} href={buildHref(basePath, { sport: s.key, betType })} active={sportKey === s.key}>
             {s.name}
           </Chip>
         ))}
@@ -62,28 +66,40 @@ export function FilterBar({
 
       {activeSport && activeSport.leagues.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          <Chip href={buildHref({ sport: sportKey, betType })} active={!leagueKey}>
+          <Chip href={buildHref(basePath, { sport: sportKey, betType })} active={!leagueKey}>
             All Leagues
           </Chip>
           {activeSport.leagues.map((l) => (
-            <Chip key={l.key} href={buildHref({ sport: sportKey, league: l.key, betType })} active={leagueKey === l.key}>
+            <Chip
+              key={l.key}
+              href={buildHref(basePath, { sport: sportKey, league: l.key, betType })}
+              active={leagueKey === l.key}
+            >
               {l.name}
             </Chip>
           ))}
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Chip href={buildHref({ sport: sportKey, league: leagueKey })} active={!betType}>
-          All Bet Types
-        </Chip>
-        <Chip href={buildHref({ sport: sportKey, league: leagueKey, betType: "MONEYLINE" })} active={betType === "MONEYLINE"}>
-          Moneylines
-        </Chip>
-        <Chip href={buildHref({ sport: sportKey, league: leagueKey, betType: "PROP" })} active={betType === "PROP"}>
-          Player Props
-        </Chip>
-      </div>
+      {showBetType && (
+        <div className="flex gap-2">
+          <Chip href={buildHref(basePath, { sport: sportKey, league: leagueKey })} active={!betType}>
+            All Bet Types
+          </Chip>
+          <Chip
+            href={buildHref(basePath, { sport: sportKey, league: leagueKey, betType: "MONEYLINE" })}
+            active={betType === "MONEYLINE"}
+          >
+            Moneylines
+          </Chip>
+          <Chip
+            href={buildHref(basePath, { sport: sportKey, league: leagueKey, betType: "PROP" })}
+            active={betType === "PROP"}
+          >
+            Player Props
+          </Chip>
+        </div>
+      )}
     </div>
   );
 }

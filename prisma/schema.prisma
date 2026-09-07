@@ -53,6 +53,7 @@ model Player {
   externalKey String?  @unique
   gameLogs    PlayerGameLog[]
   propMarkets PropMarket[]
+  projections PlayerProjection[]
 
   @@index([teamId])
 }
@@ -79,6 +80,7 @@ model Game {
   propMarkets  PropMarket[]
   picks        Pick[]
   teamGameLogs TeamGameLog[]
+  projections  PlayerProjection[]
 
   @@index([leagueId, startTime])
 }
@@ -126,6 +128,7 @@ model MarketSnapshot {
   moneylines  MoneylineOdds[]
   propMarkets PropMarket[]
   picks       Pick[]
+  projections PlayerProjection[]
 
   @@index([scanDate])
 }
@@ -163,6 +166,37 @@ model PropMarket {
   @@index([gameId])
   @@index([playerId])
   @@index([snapshotId])
+}
+
+// ---------------------------------------------------------------------------
+// Pure stats-based player projections — NOT tied to any sportsbook price. These
+// exist for players/props where we have real historical game logs but no live
+// market line (e.g. the real provider without a paid props plan). Never treat
+// `projectedLine` as a real bookmaker number — it's this app's own reference
+// point for describing recent form, nothing more.
+// ---------------------------------------------------------------------------
+
+model PlayerProjection {
+  id              String         @id @default(cuid())
+  snapshotId      String
+  snapshot        MarketSnapshot @relation(fields: [snapshotId], references: [id])
+  gameId          String
+  game            Game           @relation(fields: [gameId], references: [id])
+  playerId        String
+  player          Player         @relation(fields: [playerId], references: [id])
+  playerName      String
+  propType        String
+  projectedLine   Float          // this app's own reference point (recent weighted average, rounded) — not a market line
+  recentAvg       Float
+  hitRate         Float          // fraction of recent games clearing projectedLine
+  sampleSize      Int
+  vsOpponentAvg   Float?
+  vsOpponentGames Int?
+  rationale       String
+  createdAt       DateTime       @default(now())
+
+  @@index([snapshotId])
+  @@index([gameId])
 }
 
 // ---------------------------------------------------------------------------

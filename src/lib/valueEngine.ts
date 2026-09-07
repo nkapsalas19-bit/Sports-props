@@ -70,6 +70,23 @@ export function modelPropOverProb(logs: PropHistoryInput[], line: number): Model
   return { prob, confidence, sampleSize: sorted.length };
 }
 
+/**
+ * Recency-weighted average of a stat — used to build this app's own reference projection
+ * (e.g. "recent form suggests ~24.5") when there's no live sportsbook line to compare against.
+ */
+export function weightedRecentAverage(logs: PropHistoryInput[]): number {
+  const sorted = [...logs].sort((a, b) => b.date.getTime() - a.date.getTime());
+  if (sorted.length === 0) return 0;
+  const weights = recencyWeights(sorted.length);
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    num += sorted[i].statValue * weights[i];
+    den += weights[i];
+  }
+  return num / den;
+}
+
 export interface PickCandidateInput {
   gameKey: string;
   betType: "MONEYLINE" | "PROP";

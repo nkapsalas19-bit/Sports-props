@@ -8,7 +8,7 @@ export interface PickFilters {
 
 export async function getLatestSnapshot() {
   return prisma.marketSnapshot.findFirst({
-    where: { picks: { some: {} } },
+    where: { OR: [{ picks: { some: {} } }, { projections: { some: {} } }] },
     orderBy: { scanDate: "desc" },
   });
 }
@@ -36,6 +36,37 @@ export async function getPicksForSnapshot(snapshotId: string, filters: PickFilte
     },
     orderBy: { score: "desc" },
     take: 100,
+  });
+}
+
+export interface ProjectionFilters {
+  sportKey?: string;
+  leagueKey?: string;
+}
+
+export async function getProjectionsForSnapshot(snapshotId: string, filters: ProjectionFilters = {}) {
+  return prisma.playerProjection.findMany({
+    where: {
+      snapshotId,
+      game: {
+        league: {
+          key: filters.leagueKey,
+          sport: filters.sportKey ? { key: filters.sportKey } : undefined,
+        },
+      },
+    },
+    include: {
+      game: {
+        include: {
+          league: { include: { sport: true } },
+          homeTeam: true,
+          awayTeam: true,
+        },
+      },
+      player: { include: { team: true } },
+    },
+    orderBy: [{ sampleSize: "desc" }, { hitRate: "desc" }],
+    take: 60,
   });
 }
 

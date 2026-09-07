@@ -5,9 +5,12 @@ import {
   modelMoneylineProb,
   modelPropOverProb,
   rankPicks,
+  weightedRecentAverage,
   type PickCandidateInput,
   type TeamHistoryInput,
 } from "./valueEngine";
+
+const MIN_PROJECTION_SAMPLE = 4;
 
 export interface ScanResult {
   snapshotId: string;
@@ -15,6 +18,7 @@ export interface ScanResult {
   gamesIngested: number;
   candidatesEvaluated: number;
   picksSaved: number;
+  projectionsSaved: number;
 }
 
 export async function runScan(): Promise<ScanResult> {
@@ -267,12 +271,99 @@ export async function runScan(): Promise<ScanResult> {
     });
   }
 
+  // --- 8. Pure stats-based player projections (no sportsbook price involved) --
+  // Only for player+propType combos that don't already have a real market line above — if a
+  // book is already priced, show that real Pick, not a synthetic reference number alongside it.
+  const pricedPropKeys = new Set(data.propQuotes.map((p) => `${p.playerKey}:${p.propType}`));
+  const playerTeamKeyOf = new Map(data.players.map((p) => [p.key, p.teamKey]));
+  const gameKeyByTeamKey = new Map<string, { gameKey: string; opponentTeamKey: string }>();
+  for (const g of data.games) {
+    gameKeyByTeamKey.set(g.homeTeamKey, { gameKey: g.key, opponentTeamKey: g.awayTeamKey });
+    gameKeyByTeamKey.set(g.awayTeamKey, { gameKey: g.key, opponentTeamKey: g.homeTeamKey });
+  }
+
+  const projections: {
+    gameId: string;
+    playerId: string;
+    playerName: string;
+    propType: string;
+    projectedLine: number;
+    recentAvg: number;
+    hitRate: number;
+    sampleSize: number;
+    vsOpponentAvg?: number;
+    vsOpponentGames?: number;
+    rationale: string;
+  }[] = [];
+
+  for (const [playerKey, logsForPlayer] of playerLogsByKey) {
+    const playerId = playerByKey.get(playerKey);
+    const teamKey = playerTeamKeyOf.get(playerKey);
+    const todaysGame = teamKey ? gameKeyByTeamKey.get(teamKey) : undefined;
+    const gameId = todaysGame ? gameByKey.get(todaysGame.gameKey) : undefined;
+    if (!playerId || !gameId || !todaysGame) continue;
+
+    const statTypes = new Set(logsForPlayer.map((l) => l.statType));
+    for (const statType of statTypes) {
+      if (pricedPropKeys.has(`${playerKey}:${statType}`)) continue;
+
+      const logs = logsForPlayer.filter((l) => l.statType === statType);
+      if (logs.length < MIN_PROJECTION_SAMPLE) continue;
+
+      const recentAvg = weightedRecentAverage(logs.map((l) => ({ statValue: l.statValue, date: l.date })));
+      const projectedLine = Math.max(0.5, Math.round(recentAvg * 2) / 2);
+      const modeled = modelPropOverProb(
+        logs.map((l) => ({ statValue: l.statValue, date: l.date })),
+        projectedLine
+      );
+
+      const opponentName = teamNameByKey.get(todaysGame.opponentTeamKey) ?? "";
+      const vsOpponentLogs = opponentName
+        ? logs.filter((l) => l.opponent.toLowerCase() === opponentName.toLowerCase())
+        : [];
+      const vsOpponentAvg = vsOpponentLogs.length >= 2
+        ? vsOpponentLogs.reduce((s, l) => s + l.statValue, 0) / vsOpponentLogs.length
+        : undefined;
+
+      const playerName = playerNameByKey.get(playerKey) ?? playerKey;
+      const statLabel = statType.replace(/_/g, " ");
+      let rationale =
+        `${playerName} is averaging ${recentAvg.toFixed(1)} ${statLabel} over their last ${logs.length} games ` +
+        `(clearing ${projectedLine} in ${(modeled.prob * 100).toFixed(0)}% of them).`;
+      if (vsOpponentAvg !== undefined) {
+        rationale += ` Averaging ${vsOpponentAvg.toFixed(1)} in ${vsOpponentLogs.length} career meetings with ${opponentName}.`;
+      }
+      rationale += " No live sportsbook line for this yet — this is our own projection from recent form, not a market price.";
+
+      projections.push({
+        gameId,
+        playerId,
+        playerName,
+        propType: statType,
+        projectedLine,
+        recentAvg,
+        hitRate: modeled.prob,
+        sampleSize: logs.length,
+        vsOpponentAvg,
+        vsOpponentGames: vsOpponentAvg !== undefined ? vsOpponentLogs.length : undefined,
+        rationale,
+      });
+    }
+  }
+
+  if (projections.length) {
+    await prisma.playerProjection.createMany({
+      data: projections.map((p) => ({ snapshotId: snapshot.id, ...p })),
+    });
+  }
+
   return {
     snapshotId: snapshot.id,
     provider: provider.name,
     gamesIngested: gameByKey.size,
     candidatesEvaluated: candidates.length,
     picksSaved: ranked.length,
+    projectionsSaved: projections.length,
   };
 }
 

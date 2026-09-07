@@ -20,6 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="hover:text-white transition">
                 Best Picks
               </Link>
+              <Link href="/trends" className="hover:text-white transition">
+                Player Trends
+              </Link>
               <Link href="/challenges" className="hover:text-white transition">
                 Bankroll Challenges
               </Link>

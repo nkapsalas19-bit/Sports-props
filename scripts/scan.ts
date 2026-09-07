@@ -11,7 +11,8 @@ async function main() {
   console.log("Running daily scan...");
   const result = await runScan();
   console.log(`Done. Provider=${result.provider} games=${result.gamesIngested} ` +
-    `candidates=${result.candidatesEvaluated} picks saved=${result.picksSaved} snapshot=${result.snapshotId}`);
+    `candidates=${result.candidatesEvaluated} picks saved=${result.picksSaved} ` +
+    `projections saved=${result.projectionsSaved} snapshot=${result.snapshotId}`);
 }
 
 main()

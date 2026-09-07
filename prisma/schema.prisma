@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: sports / leagues / teams / players
+// ---------------------------------------------------------------------------
+
+model Sport {
+  id      String   @id @default(cuid())
+  key     String   @unique // "basketball" | "football" | "baseball" | "soccer"
+  name    String
+  leagues League[]
+}
+
+model League {
+  id           String   @id @default(cuid())
+  key          String   @unique // "nba" | "nfl" | "mlb" | "epl" | "bundesliga" | "serie_a" | "ucl" | "uel" | "uecl" | "intl_wc" ...
+  name         String
+  sportId      String
+  sport        Sport    @relation(fields: [sportId], references: [id])
+  externalKey  String? // maps to a real provider's sport/league key (e.g. The Odds API "soccer_epl")
+  teams        Team[]
+  games        Game[]
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  leagueId    String
+  league      League   @relation(fields: [leagueId], references: [id])
+  name        String
+  shortName   String
+  externalKey String?  @unique
+  players     Player[]
+  homeGames   Game[]   @relation("HomeTeam")
+  awayGames   Game[]   @relation("AwayTeam")
+  gameLogs    TeamGameLog[]
+
+  @@index([leagueId])
+}
+
+model Player {
+  id          String   @id @default(cuid())
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id])
+  name        String
+  position    String?
+  externalKey String?  @unique
+  gameLogs    PlayerGameLog[]
+  propMarkets PropMarket[]
+
+  @@index([teamId])
+}
+
+// ---------------------------------------------------------------------------
+// Games
+// ---------------------------------------------------------------------------
+
+model Game {
+  id           String   @id @default(cuid())
+  leagueId     String
+  league       League   @relation(fields: [leagueId], references: [id])
+  homeTeamId   String
+  awayTeamId   String
+  homeTeam     Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam     Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  startTime    DateTime
+  status       String   @default("scheduled") // scheduled | final
+  homeScore    Int?
+  awayScore    Int?
+  externalKey  String?  @unique
+
+  moneylines   MoneylineOdds[]
+  propMarkets  PropMarket[]
+  picks        Pick[]
+  teamGameLogs TeamGameLog[]
+
+  @@index([leagueId, startTime])
+}
+
+// ---------------------------------------------------------------------------
+// Historical performance (used to model "true" probability)
+// ---------------------------------------------------------------------------
+
+model TeamGameLog {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  gameId    String?
+  game      Game?    @relation(fields: [gameId], references: [id])
+  date      DateTime
+  isHome    Boolean
+  opponent  String
+  won       Boolean
+  pointsFor Float
+  pointsAgainst Float
+
+  @@index([teamId, date])
+}
+
+model PlayerGameLog {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id])
+  date      DateTime
+  opponent  String
+  statType  String  // "points" | "rebounds" | "assists" | "passing_yards" | "strikeouts" | "shots_on_target" | "goals" | ...
+  statValue Float
+
+  @@index([playerId, statType, date])
+}
+
+// ---------------------------------------------------------------------------
+// Market data captured by the daily scan
+// ---------------------------------------------------------------------------
+
+model MarketSnapshot {
+  id          String   @id @default(cuid())
+  scanDate    DateTime @default(now())
+  provider    String   // "mock" | "the-odds-api"
+  moneylines  MoneylineOdds[]
+  propMarkets PropMarket[]
+  picks       Pick[]
+
+  @@index([scanDate])
+}
+
+model MoneylineOdds {
+  id           String         @id @default(cuid())
+  snapshotId   String
+  snapshot     MarketSnapshot @relation(fields: [snapshotId], references: [id])
+  gameId       String
+  game         Game           @relation(fields: [gameId], references: [id])
+  bookmaker    String
+  homeOdds     Int // American odds
+  awayOdds     Int
+  capturedAt   DateTime       @default(now())
+
+  @@index([gameId])
+  @@index([snapshotId])
+}
+
+model PropMarket {
+  id          String         @id @default(cuid())
+  snapshotId  String
+  snapshot    MarketSnapshot @relation(fields: [snapshotId], references: [id])
+  gameId      String
+  game        Game           @relation(fields: [gameId], references: [id])
+  playerId    String
+  player      Player         @relation(fields: [playerId], references: [id])
+  propType    String
+  line        Float
+  overOdds    Int
+  underOdds   Int
+  bookmaker   String
+  capturedAt  DateTime       @default(now())
+
+  @@index([gameId])
+  @@index([playerId])
+  @@index([snapshotId])
+}
+
+// ---------------------------------------------------------------------------
+// Computed picks (the "best props/moneylines" the scan produces)
+// ---------------------------------------------------------------------------
+
+model Pick {
+  id           String         @id @default(cuid())
+  snapshotId   String
+  snapshot     MarketSnapshot @relation(fields: [snapshotId], references: [id])
+  gameId       String
+  game         Game           @relation(fields: [gameId], references: [id])
+  betType      String         // "MONEYLINE" | "PROP"
+  side         String         // "HOME" | "AWAY" | "OVER" | "UNDER"
+  playerId     String?
+  playerName   String?
+  propType     String?
+  line         Float?
+  americanOdds Int
+  impliedProb  Float
+  modeledProb  Float
+  edge         Float          // modeledProb - impliedProb
+  confidence   Float          // 0-1, based on sample size of historical logs
+  score        Float          // edge * confidence, used for ranking
+  rationale    String
+  createdAt    DateTime       @default(now())
+
+  challengeBets ChallengeBet[]
+
+  @@index([snapshotId, score])
+  @@index([gameId])
+}
+
+// ---------------------------------------------------------------------------
+// Bankroll challenges ("$10 to $1000")
+// ---------------------------------------------------------------------------
+
+model Challenge {
+  id              String   @id @default(cuid())
+  name            String
+  startBudget     Float
+  goalBudget      Float
+  currentBankroll Float
+  riskLevel       String   // "LOW" | "MEDIUM" | "HIGH"
+  targetOddsMin   Int      // American odds, e.g. 100
+  targetOddsMax   Int      // American odds, e.g. 150
+  maxParlayLegs   Int      @default(1)
+  stakePercent    Float    // fraction of current bankroll to stake per bet
+  status          String   @default("ACTIVE") // ACTIVE | WON | BUSTED | ARCHIVED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bets ChallengeBet[]
+}
+
+model ChallengeBet {
+  id               String    @id @default(cuid())
+  challengeId      String
+  challenge        Challenge @relation(fields: [challengeId], references: [id])
+  pickId           String?
+  pick             Pick?     @relation(fields: [pickId], references: [id])
+  description      String
+  legs             Int       @default(1)
+  americanOdds     Int
+  stake            Float
+  potentialPayout  Float
+  status           String    @default("PENDING") // PENDING | WON | LOST | PUSH
+  bankrollBefore   Float
+  bankrollAfter    Float?
+  createdAt        DateTime  @default(now())
+  settledAt        DateTime?
+
+  @@index([challengeId, createdAt])
+}

@@ -6,8 +6,6 @@ dist/
 *.log
 .env
 .env.local
-prisma/dev.db
-prisma/dev.db-journal
 .DS_Store
 next-env.d.ts
 *.tsbuildinfo

@@ -83,15 +83,19 @@ Environment variables (see `.env.example`):
 
 ## Stack
 
-Next.js 14 (App Router) + TypeScript, Prisma + SQLite, Tailwind CSS, Recharts.
+Next.js 14 (App Router) + TypeScript, Prisma + PostgreSQL, Tailwind CSS, Recharts.
 
-## Getting started
+## Getting started (local)
+
+Needs a Postgres database — either run one locally, or just point `DATABASE_URL` at a free
+hosted instance (Render, Neon, and Supabase all have a free Postgres tier) and use that same
+connection string for local dev too.
 
 ```bash
 npm install
-cp .env.example .env
-npx prisma db push      # creates dev.db
-npm run db:seed         # runs an initial scan so the dashboard has data
+cp .env.example .env    # fill in DATABASE_URL
+npx prisma db push       # creates the schema
+npm run db:seed          # runs an initial scan so the dashboard has data
 npm run dev
 ```
 
@@ -101,10 +105,37 @@ provider reseeds daily; running it again same-day repeats the same slate).
 ### Scripts
 
 - `npm run dev` / `npm run build` / `npm run start` — standard Next.js
-- `npm run scan` — run the scan from the CLI (point a cron job / GitHub Action / Vercel Cron at
-  this each morning instead of clicking the button)
+- `npm run scan` — run the scan from the CLI (point a cron job / GitHub Action / Render Cron Job
+  at this each morning instead of clicking the button)
 - `npm run db:seed` — same as `scan`, wired up as the Prisma seed command
 - `npm run typecheck` — `tsc --noEmit`
+
+## Deploying to Render
+
+A `render.yaml` blueprint is included — it provisions a free Postgres database and a free web
+service, wired together, in one step:
+
+1. Push this branch to GitHub (already done if you're reading this from the repo).
+2. In the Render dashboard: **New** → **Blueprint**, pick this repo, and Render reads
+   `render.yaml` automatically — it creates the `sports-props-db` Postgres instance and the
+   `sports-props` web service, and wires `DATABASE_URL` between them for you.
+3. Render prompts you for the two secret env vars marked `sync: false` in `render.yaml` —
+   `ODDS_API_KEY` and `API_SPORTS_KEY`. Leave them blank for now if you don't have them yet; the
+   app defaults to `ODDS_PROVIDER=mock` either way, so it works immediately without any keys.
+4. Deploy. The build step runs `prisma db push` against your new database automatically, so the
+   schema is ready the moment it goes live — no separate migration step needed.
+5. Once it's live, open the URL Render gives you and click **Run morning scan** to populate it
+   (or trigger `POST /api/scan` yourself, e.g. from a Render Cron Job for a real "every morning"
+   schedule instead of clicking the button).
+6. When you do get real API keys: in the Render dashboard, set `ODDS_PROVIDER=the-odds-api` and
+   fill in `ODDS_API_KEY` (and `STATS_PROVIDER=api-sports` + `API_SPORTS_KEY` for real history),
+   then redeploy.
+
+**Heads up on the free tier:** Render's free web services spin down after 15 minutes of
+inactivity (the first request after that takes a few seconds to wake back up), and Render's free
+Postgres plan expires after 30 days — you'd need to upgrade to a paid instance (or migrate to
+another free host like Neon) to keep the data past that. Fine for trying this out; worth knowing
+before you rely on it.
 
 ## Project layout
 
